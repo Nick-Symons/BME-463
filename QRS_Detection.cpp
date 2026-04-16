@@ -147,7 +147,7 @@ static float c_mwi[MWI_N] = {1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 
 static float a_mwi = 1/1.0;
 static float x_mwi[MWI_N] = {0};
 
-vector<double> QRS_Peaks(const vector<double>& input_signal) {
+vector<double> QRS_Peaks(const vector<double>& input_signal){
     vector<double> QRS_Peaks;
 
     // ── Adaptive threshold state — must be outside the loop ──────────────────
@@ -155,7 +155,7 @@ vector<double> QRS_Peaks(const vector<double>& input_signal) {
     float NPKI       = 0.0f;
     float THRESHOLD1 = 0.0f;
     float THRESHOLD2 = 0.0f;
-    float samples_since_last_peak = 1000;
+    float samples_since_last_peak = 1000; 
 
     // ── Local max tracking — outside the loop ─────────────────────────────────
     float localMax    = 0.0f;

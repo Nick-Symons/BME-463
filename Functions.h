@@ -1,52 +1,37 @@
 
 #include <stdint.h>
+#include <vector>
+#include <fstream>
 
-/**
- * @brief Shift an array of floats right by one index
- * 
- * @param in    Pointer to array to shift
- * @param n     Length of array
- */ 
-void shift_right(float *in, int const n); // Implemented during lab 04
+using namespace std;
 
+void shift_right(float *in, int const n); 
 
-/**
- * @brief Implementation of an IIR filter
- * 
- * @param a     : overall attenuation/gain
- * @param inx   : input signal array pointer, newest sample at index 0
- * @param cx    : numerator coefficients
- * @param nx    : number of numerator coefficients
- * @param iny   : output signal array pointer, newest output at index 0   
- * @param cy    : denominator coefficients
- * @param ny    : number of denominator coefficients
- * 
- * @return y[0]
- */
 float filter_IIR(float const a,
                  float const *inx, float const *cx, int const nx,
                  float const *iny, float const *cy, int const ny);
 
-/**
- * @brief Implementation of an FIR filter
- * 
- * @param a     : overall attenuation/gain
- * @param in    : input signal array pointer, newest sample at index 0
- * @param c     : FIR coefficients
- * @param n     : number of coefficients
- * 
- * @return newest output sample
- */
-float filter_FIR(float const a,
-                 float const *in,
-                 float const *c,
+float filter_FIR(float const a, float const *in, float const *c,
                  int const n);
-                 // Implemented during lab 05
 
+float* PanT_Thresh(float const n, float const *in, float peakt, 
+                    float peaki, float npki, float spki, 
+                    float thresholdi1);
 
+vector<double> resampled_signal(const vector<double>& input_signal);
 
-///////////////////////////////////////////////////////////////////////
-///// STOP! DO NOT IMPLEMENT PAN TOMPKINS THRESHOLD UNTIL LAB 10 //////
-///////////////////////////////////////////////////////////////////////
+vector<double> bandpassed_signal(const vector<double>& input_signal);
 
-float* PanT_Thresh(float const n, float const *in, float peakt, float peaki, float npki, float spki, float thresholdi1);
+vector<double> QRS_Peaks(const vector<double>& input_signal);
+
+vector<int> extractQRSTimestamps(const vector<double>& pulseVec, 
+                    double threshold = 0.5);
+
+vector<int> computeRRIntervals(const vector<int>& timestamps);
+
+vector<double> computeSlidingEntropy(const vector<int>& rrIntervals, 
+                    double fs = 200.0, int windowSize = 10);
+
+vector<double> computeKurtosis(const vector<double>& inputSignal);
+
+vector<double> computeHF_Residual(const vector<double>& inputSignal);
