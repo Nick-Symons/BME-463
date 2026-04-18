@@ -1,9 +1,14 @@
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
-from sklearn.metrics import f1_score, confusion_matrix, ConfusionMatrixDisplay, accuracy_score
+from sklearn.svm import SVC
+from sklearn.preprocessing import StandardScaler
+from sklearn.model_selection import StratifiedKFold, GridSearchCV, cross_val_score
+from sklearn.metrics import (f1_score, confusion_matrix, ConfusionMatrixDisplay,
+                             classification_report, accuracy_score)
+from sklearn.inspection import permutation_importance
 
-# ── Load and diagnose ─────────────────────────────────────────────────────────
+# ── Load data ─────────────────────────────────────────────────────────────────
 try:
     df = pd.read_csv("results.csv", sep="\t")
     if "true_label" not in df.columns:
@@ -11,328 +16,221 @@ try:
 except:
     df = pd.read_csv("results.csv", sep=",")
 
-print("Columns found    :", df.columns.tolist())
-print("Shape            :", df.shape)
-print("Classes found    :", df["true_label"].unique())
-print(df.head())
-
 df["true_label"] = df["true_label"].str.lower().str.strip()
 
+print("Columns found    :", df.columns.tolist())
+print("Shape            :", df.shape)
 print(f"\nRecords per class:\n{df['true_label'].value_counts()}")
 
-# ── Entropy box plot ──────────────────────────────────────────────────────
-fig, ax = plt.subplots(figsize=(10, 5))
-classes  = ["af", "normal", "noisy", "other"]
-colors   = ["#E24B4A", "#1D9E75", "#EF9F27", "#888780"]
+# ── Prepare features ──────────────────────────────────────────────────────────
+features = ["mean_entropy", "mean_p_wave_amplitude", "mean_kurtosis", "mean_residual"]
 
-plot_data = [df[df["true_label"] == c]["mean_entropy"].values for c in classes]
-bp = ax.boxplot(plot_data, tick_labels=classes, patch_artist=True)
-for patch, color in zip(bp["boxes"], colors):
-    patch.set_facecolor(color)
-    patch.set_alpha(0.6)
+df_ml = df.dropna(subset=features + ["true_label"]).copy()
+print(f"\nSamples after dropping NA: {len(df_ml)}")
+print(f"Records per class after dropna:\n{df_ml['true_label'].value_counts()}")
 
-legend_handles = []
-for i, (data, color, label) in enumerate(zip(plot_data, colors, classes)):
-    x = np.random.normal(i + 1, 0.06, size=len(data))
-    scatter = ax.scatter(x, data, alpha=0.9, color=color, s=25, zorder=3, label=label)
-    legend_handles.append(scatter)
-
-ax.legend(handles=legend_handles, title="Class", loc="upper right")
-ax.set_title("Mean entropy distribution by class")
-ax.set_xlabel("Class")
-ax.set_ylabel("Mean entropy (bits)")
-ax.grid(True, alpha=0.3, axis="y")
-plt.tight_layout()
-plt.show()
-
-"""
-Removing noise classification from algorithm so no need to plot these features and tune thresholds for noisy class
-Keeping here for reference 
-# ── Kurtosis box plot ─────────────────────────────────────────────────────
-fig, ax = plt.subplots(figsize=(10, 5))
-
-plot_data = [df[df["true_label"] == c]["mean_kurtosis"].values for c in classes]
-bp = ax.boxplot(plot_data, tick_labels=classes, patch_artist=True)
-for patch, color in zip(bp["boxes"], colors):
-    patch.set_facecolor(color)
-    patch.set_alpha(0.6)
-
-legend_handles = []
-for i, (data, color, label) in enumerate(zip(plot_data, colors, classes)):
-    x = np.random.normal(i + 1, 0.06, size=len(data))
-    scatter = ax.scatter(x, data, alpha=0.9, color=color, s=25, zorder=3, label=label)
-    legend_handles.append(scatter)
-
-ax.legend(handles=legend_handles, title="Class", loc="upper right")
-ax.set_title("Mean kurtosis distribution by class")
-ax.set_xlabel("Class")
-ax.set_ylabel("Mean kurtosis")
-ax.grid(True, alpha=0.3, axis="y")
-plt.tight_layout()
-plt.show()
-
-# ── Residual box plot ─────────────────────────────────────────────────────
-fig, ax = plt.subplots(figsize=(10, 5))
-
-plot_data = [df[df["true_label"] == c]["mean_residual"].values for c in classes]
-bp = ax.boxplot(plot_data, tick_labels=classes, patch_artist=True)
-for patch, color in zip(bp["boxes"], colors):
-    patch.set_facecolor(color)
-    patch.set_alpha(0.6)
-
-legend_handles = []
-for i, (data, color, label) in enumerate(zip(plot_data, colors, classes)):
-    x = np.random.normal(i + 1, 0.06, size=len(data))
-    scatter = ax.scatter(x, data, alpha=0.9, color=color, s=25, zorder=3, label=label)
-    legend_handles.append(scatter)
-
-ax.legend(handles=legend_handles, title="Class", loc="upper right")
-ax.set_title("Mean residual distribution by class")
-ax.set_xlabel("Class")
-ax.set_ylabel("Mean residual")
-ax.grid(True, alpha=0.3, axis="y")
-plt.tight_layout()
-plt.show()
-
-# ── Stage 1a: kurtosis threshold sweep — noisy vs non-noisy ────────────────
-kurt_thresholds = np.linspace(df["mean_kurtosis"].min(), df["mean_kurtosis"].max(), 200)
-y_true_noisy    = (df["true_label"] == "noisy").astype(int)
-kurt_f1_scores  = []
-
-for thresh in kurt_thresholds:
-    y_pred_noisy = (df["mean_kurtosis"] < thresh).astype(int)  # low kurtosis = noisy
-    f1 = f1_score(y_true_noisy, y_pred_noisy, zero_division=0)
-    kurt_f1_scores.append(f1)
-
-best_kurt_idx    = np.argmax(kurt_f1_scores)
-best_kurt_thresh = kurt_thresholds[best_kurt_idx]
-best_kurt_f1     = kurt_f1_scores[best_kurt_idx]
-
-fig, ax = plt.subplots(figsize=(10, 5))
-ax.plot(kurt_thresholds, kurt_f1_scores, linewidth=1.5)
-ax.axvline(x=best_kurt_thresh, color="red", linestyle="--",
-           label=f"Best threshold = {best_kurt_thresh:.3f}  (F1 = {best_kurt_f1:.3f})")
-ax.set_title("F1 score vs kurtosis threshold (noisy vs non-noisy)")
-ax.set_xlabel("Kurtosis threshold")
-ax.set_ylabel("F1 score")
-ax.legend()
-ax.grid(True, alpha=0.3)
-plt.tight_layout()
-plt.show()
-
-print(f"\n-- Stage 1: Noise gate --")
-print(f"Best kurtosis threshold : {best_kurt_thresh:.4f}")
-print(f"Best noisy F1 score     : {best_kurt_f1:.4f}")
-
-y_pred_noisy_best = (df["mean_kurtosis"] < best_kurt_thresh).astype(int)
-cm   = confusion_matrix(y_true_noisy, y_pred_noisy_best)
-disp = ConfusionMatrixDisplay(cm, display_labels=["Non-noisy", "Noisy"])
-disp.plot()
-plt.title(f"Noise gate confusion matrix -- kurtosis threshold = {best_kurt_thresh:.4f}")
-plt.show()
-
-# ── Stage 1b: residual threshold sweep — noisy vs non-noisy ────────────────
-res_thresholds = np.linspace(df["mean_residual"].min(), df["mean_residual"].max(), 200)
-y_true_noisy    = (df["true_label"] == "noisy").astype(int)
-res_f1_scores  = []
-
-for thresh in res_thresholds:
-    y_pred_noisy = (df["mean_residual"] < thresh).astype(int)  # low kurtosis = noisy
-    f1 = f1_score(y_true_noisy, y_pred_noisy, zero_division=0)
-    res_f1_scores.append(f1)
-
-best_res_idx    = np.argmax(res_f1_scores)
-best_res_thresh = res_thresholds[best_res_idx]
-best_res_f1     = res_f1_scores[best_res_idx]
-
-fig, ax = plt.subplots(figsize=(10, 5))
-ax.plot(res_thresholds, res_f1_scores, linewidth=1.5)
-ax.axvline(x=best_res_thresh, color="red", linestyle="--",
-           label=f"Best threshold = {best_res_thresh:.3f}  (F1 = {best_res_f1:.3f})")
-ax.set_title("F1 score vs Residual threshold (noisy vs non-noisy)")
-ax.set_xlabel("Residual threshold")
-ax.set_ylabel("F1 score")
-ax.legend()
-ax.grid(True, alpha=0.3)
-plt.tight_layout()
-plt.show()
-
-print(f"\n-- Stage 1: Noise gate --")
-print(f"Best Residual threshold : {best_res_thresh:.4f}")
-print(f"Best noisy F1 score     : {best_res_f1:.4f}")
-
-y_pred_noisy_best = (df["mean_residual"] < best_res_thresh).astype(int)
-cm   = confusion_matrix(y_true_noisy, y_pred_noisy_best)
-disp = ConfusionMatrixDisplay(cm, display_labels=["Non-noisy", "Noisy"])
-disp.plot()
-plt.title(f"Noise gate confusion matrix -- residual threshold = {best_res_thresh:.4f}")
-plt.show()
-
-# Show confusion matrix combining both classification features
-y_pred_noisy_best = ((df["mean_kurtosis"] < best_kurt_thresh) & (df["mean_residual"] < best_res_thresh)).astype(int)
-cm   = confusion_matrix(y_true_noisy, y_pred_noisy_best)
-disp = ConfusionMatrixDisplay(cm, display_labels=["Non-noisy", "Noisy"])
-disp.plot()
-plt.title(f"Noise gate confusion matrix using both kurtosis threshold = {best_kurt_thresh:.4f} and residual threshold = {best_res_thresh:.4f}")
-plt.show()
-
-# Stage 2 runs on signals that pass the kurtosis and residual noise gate
-df_clean = df[(df["mean_kurtosis"] >= best_kurt_thresh) & (df["mean_residual"] >= best_res_thresh)].copy()
-
-"""
-
-# ── Noise guard confusion matrix ──────────────────────────────────────────────
-y_true_noisy      = (df["true_label"] == "noisy").astype(int)
-y_pred_noisy      = df["mean_entropy"].isna().astype(int)  # NA = caught by noise guard
-
-cm   = confusion_matrix(y_true_noisy, y_pred_noisy)
-disp = ConfusionMatrixDisplay(cm, display_labels=["Non-noisy", "Noisy"])
-disp.plot()
-plt.title("Noise guard confusion matrix\n(NA entropy = flagged as noisy by BPM/interval guards)")
-plt.show()
-
-noisy_f1       = f1_score(y_true_noisy, y_pred_noisy, zero_division=0)
-noisy_caught   = y_pred_noisy[y_true_noisy == 1].sum()
-noisy_total    = y_true_noisy.sum()
-false_positives = y_pred_noisy[y_true_noisy == 0].sum()
-
-print(f"\n-- Noise guard performance --")
-print(f"Noisy signals caught    : {noisy_caught} / {noisy_total}")
-print(f"False positives         : {false_positives} clean signals incorrectly flagged")
-print(f"Noise guard F1          : {noisy_f1:.4f}")
-
-# ── 3. Stage 2: entropy threshold sweep — AF vs non-AF (excluding noisy) ─────
-# Only run on signals that pass the noise gate
-df_clean = df.dropna(subset=["mean_entropy"]).copy()
-
-print(f"\n--- Stage 2: AF classifier (on {len(df_clean)} clean signals) ------------")
-print(f"Records per class after noise gate:\n{df_clean['true_label'].value_counts()}")
-
-ent_thresholds = np.linspace(df_clean["mean_entropy"].min(), df_clean["mean_entropy"].max(), 200)
-y_true_af      = (df_clean["true_label"] == "af").astype(int)
-ent_f1_scores  = []
-
-for thresh in ent_thresholds:
-    y_pred_af = (df_clean["mean_entropy"] > thresh).astype(int)
-    f1 = f1_score(y_true_af, y_pred_af, zero_division=0)
-    ent_f1_scores.append(f1)
-
-best_ent_idx    = np.argmax(ent_f1_scores)
-best_ent_thresh = ent_thresholds[best_ent_idx]
-best_ent_f1     = ent_f1_scores[best_ent_idx]
-
-fig, ax = plt.subplots(figsize=(10, 5))
-ax.plot(ent_thresholds, ent_f1_scores, linewidth=1.5)
-ax.axvline(x=best_ent_thresh, color="red", linestyle="--",
-           label=f"Best threshold = {best_ent_thresh:.3f}  (F1 = {best_ent_f1:.3f})")
-ax.set_title("F1 score vs entropy threshold (AF vs non-AF, clean signals only)")
-ax.set_xlabel("Entropy threshold")
-ax.set_ylabel("F1 score")
-ax.legend()
-ax.grid(True, alpha=0.3)
-plt.tight_layout()
-plt.show()
-
-print(f"Best entropy threshold  : {best_ent_thresh:.4f}")
-print(f"Best AF F1 score        : {best_ent_f1:.4f}")
-
-# Confusion matrix for AF classifier
-y_pred_af_best = (df_clean["mean_entropy"] > best_ent_thresh).astype(int)
-cm   = confusion_matrix(y_true_af, y_pred_af_best)
-disp = ConfusionMatrixDisplay(cm, display_labels=["Non-AF", "AF"])
-disp.plot()
-plt.title(f"AF classifier confusion matrix — entropy threshold = {best_ent_thresh:.3f}")
-plt.show()
-
-# ── 4. Two-threshold entropy sweep (AF / Other / Normal) ─────────────────────
-print(f"\n-- Combined macro F1 (all 4 classes) --")
-
-ent_low_thresholds  = np.linspace(df_clean["mean_entropy"].min(),
-                                   df_clean["mean_entropy"].max(), 50)
-ent_high_thresholds = np.linspace(df_clean["mean_entropy"].min(),
-                                   df_clean["mean_entropy"].max(), 50)
-
-best_macro_f1  = 0
-best_low_t     = 0
-best_high_t    = 0
-
-for low_t in ent_low_thresholds:
-    for high_t in ent_high_thresholds:
-        if high_t <= low_t:
-            continue
-
-        def classify_combined(row, lt=low_t, ht=high_t):
-            if pd.isna(row["mean_entropy"]):  
-                return "noisy"
-            elif row["mean_entropy"] > ht:
-                return "af"
-            elif row["mean_entropy"] < lt:
-                return "normal"
-            else:
-                return "other"
-
-        y_pred   = df.apply(classify_combined, axis=1)
-        macro_f1 = f1_score(df["true_label"], y_pred,
-                            average="macro", zero_division=0)
-
-        if macro_f1 > best_macro_f1:
-            best_macro_f1 = macro_f1
-            best_low_t    = low_t
-            best_high_t   = high_t
-
-print(f"Low entropy threshold   : {best_low_t:.4f}  (below = Normal)")
-print(f"High entropy threshold  : {best_high_t:.4f}  (above = AF)")
-print(f"Combined macro F1       : {best_macro_f1:.4f}")
-
-# ── Final confusion matrix ────────────────────────────────────────────────────
-y_pred_final = df.apply(
-    lambda row: classify_combined(row, best_low_t, best_high_t),
-    axis=1
-)
+X = df_ml[features].values
+y = df_ml["true_label"].values
 
 all_classes = ["af", "normal", "noisy", "other"]
-cm   = confusion_matrix(df["true_label"], y_pred_final, labels=all_classes)
+
+# ── Box plots for all features ────────────────────────────────────────────────
+all_classes = ["af", "normal", "noisy", "other"]
+colors      = ["#E24B4A", "#1D9E75", "#EF9F27", "#888780"]
+
+feature_plots = [
+    ("mean_entropy",          "Mean entropy (bits)",    "Mean entropy distribution by class"),
+    ("mean_p_wave_amplitude", "P-wave amplitude",       "P-wave amplitude distribution by class"),
+    ("mean_kurtosis",         "Kurtosis",               "Kurtosis distribution by class"),
+    ("mean_residual",         "HF residual",            "HF residual distribution by class"),
+]
+
+for col, ylabel, title in feature_plots:
+    if col not in df.columns:
+        print(f"Skipping {col} — not in CSV")
+        continue
+
+    fig, ax = plt.subplots(figsize=(10, 5))
+
+    plot_data = [df[df["true_label"] == c][col].dropna().values for c in all_classes]
+
+    bp = ax.boxplot(plot_data, tick_labels=all_classes, patch_artist=True)
+    for patch, color in zip(bp["boxes"], colors):
+        patch.set_facecolor(color)
+        patch.set_alpha(0.6)
+
+    legend_handles = []
+    for i, (data, color, label) in enumerate(zip(plot_data, colors, all_classes)):
+        x = np.random.normal(i + 1, 0.06, size=len(data))
+        scatter = ax.scatter(x, data, alpha=0.9, color=color,
+                             s=25, zorder=3, label=label)
+        legend_handles.append(scatter)
+
+    ax.legend(handles=legend_handles, title="Class", loc="upper right")
+    ax.set_title(title)
+    ax.set_xlabel("Class")
+    ax.set_ylabel(ylabel)
+    ax.grid(True, alpha=0.3, axis="y")
+    plt.tight_layout()
+    plt.show()
+
+# ── Scale features ────────────────────────────────────────────────────────────
+scaler   = StandardScaler()
+X_scaled = scaler.fit_transform(X)
+
+print(f"\n-- Feature scaling --")
+for i, f in enumerate(features):
+    print(f"  {f:<20} mean={scaler.mean_[i]:.4f}  std={scaler.scale_[i]:.4f}")
+
+# ── Grid search over C with stratified CV ─────────────────────────────────────
+print(f"\n-- Grid search over C (linear kernel, 5-fold stratified CV) --")
+
+param_grid = {"C": [0.01, 0.1, 1.0, 10.0]}
+cv         = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
+
+grid_search = GridSearchCV(
+    SVC(kernel="linear", class_weight="balanced"),
+    param_grid,
+    cv=cv,
+    scoring="f1_macro",
+    n_jobs=-1,   # use all CPU cores
+    verbose=1
+)
+grid_search.fit(X_scaled, y)
+
+print(f"\nGrid search results:")
+for mean, std, params in zip(
+        grid_search.cv_results_["mean_test_score"],
+        grid_search.cv_results_["std_test_score"],
+        grid_search.cv_results_["params"]):
+    print(f"  C={params['C']:<6} -> macro F1 = {mean:.4f} +/- {std:.4f}")
+
+best_C = grid_search.best_params_["C"]
+print(f"\nBest C : {best_C}")
+print(f"Best CV macro F1 : {grid_search.best_score_:.4f}")
+
+# ── Train final model on full dataset with best C ─────────────────────────────
+svm = SVC(kernel="linear", C=best_C, class_weight="balanced")
+svm.fit(X_scaled, y)
+
+y_pred_train = svm.predict(X_scaled)
+train_f1     = f1_score(y, y_pred_train, average="macro", zero_division=0)
+
+print(f"\n-- Overfitting check --")
+print(f"Training macro F1 : {train_f1:.4f}")
+print(f"CV macro F1       : {grid_search.best_score_:.4f}")
+print(f"Difference        : {train_f1 - grid_search.best_score_:.4f}  ",
+      end="")
+if train_f1 - grid_search.best_score_ > 0.15:
+    print("(WARNING: likely overfitting — consider lower C or more data)")
+else:
+    print("(OK)")
+
+# ── Per-fold CV scores ────────────────────────────────────────────────────────
+fold_scores = cross_val_score(
+    SVC(kernel="linear", C=best_C, class_weight="balanced"),
+    X_scaled, y, cv=cv, scoring="f1_macro"
+)
+print(f"\n-- Per-fold CV scores --")
+for i, score in enumerate(fold_scores):
+    print(f"  Fold {i+1}: {score:.4f}")
+print(f"  Mean  : {fold_scores.mean():.4f}")
+print(f"  Std   : {fold_scores.std():.4f}")
+
+# ── Classification report ─────────────────────────────────────────────────────
+print(f"\n-- Classification report (training set) --")
+print(classification_report(y, y_pred_train, zero_division=0))
+
+# ── Confusion matrix ──────────────────────────────────────────────────────────
+cm   = confusion_matrix(y, y_pred_train, labels=all_classes)
 disp = ConfusionMatrixDisplay(cm, display_labels=all_classes)
 disp.plot()
-plt.title("Full confusion matrix -- all 4 classes")
+plt.title(f"SVM confusion matrix (training set)\nC={best_C}, kernel=linear")
 plt.show()
 
-# ── Visualise the two entropy thresholds on the distribution ──────────────────
-fig, ax = plt.subplots(figsize=(10, 5))
+# ── Permutation importance ────────────────────────────────────────────────────
+print(f"\n-- Permutation importance --")
+print(f"(shuffling each feature 10 times, measuring macro F1 drop)")
 
-for data, color, label in zip(
-        [df_clean[df_clean["true_label"] == c]["mean_entropy"].values for c in classes],
-        colors, classes):
-    ax.scatter([label] * len(data), data, alpha=0.7, color=color, s=25, zorder=3, label=label)
+perm_imp = permutation_importance(
+    svm, X_scaled, y,
+    n_repeats=10,
+    random_state=42,
+    scoring="f1_macro"
+)
 
-ax.axhline(y=best_low_t,  color="blue", linestyle="--", linewidth=1.2,
-           label=f"Low threshold  = {best_low_t:.3f}  (Normal below)")
-ax.axhline(y=best_high_t, color="red",  linestyle="--", linewidth=1.2,
-           label=f"High threshold = {best_high_t:.3f}  (AF above)")
-ax.set_title("Entropy distribution with classification thresholds")
-ax.set_xlabel("Class")
-ax.set_ylabel("Mean entropy (bits)")
-ax.legend()
-ax.grid(True, alpha=0.3, axis="y")
+# Sort by mean importance
+sorted_idx = perm_imp.importances_mean.argsort()[::-1]
+
+print(f"\n  {'Feature':<20} {'Mean drop':>10} {'Std':>8} {'Signal':>10}")
+print(f"  {'-'*50}")
+for i in sorted_idx:
+    mean = perm_imp.importances_mean[i]
+    std  = perm_imp.importances_std[i]
+    snr  = mean / std if std > 0 else 0
+    flag = "DROP?" if snr < 1.0 else "OK"
+    print(f"  {features[i]:<20} {mean:>10.4f} {std:>8.4f} {flag:>10}")
+
+# Plot permutation importance
+fig, ax = plt.subplots(figsize=(8, 5))
+ax.barh(
+    [features[i] for i in sorted_idx],
+    perm_imp.importances_mean[sorted_idx],
+    xerr=perm_imp.importances_std[sorted_idx],
+    color=["#E24B4A", "#1D9E75", "#EF9F27", "#888780"][:len(features)],
+    alpha=0.7
+)
+ax.axvline(x=0, color="black", linewidth=0.8, linestyle="--")
+ax.set_title("Permutation importance\n(mean F1 drop when feature is shuffled)")
+ax.set_xlabel("Mean macro F1 decrease")
+ax.grid(True, alpha=0.3, axis="x")
 plt.tight_layout()
 plt.show()
 
-# ── Total accuracy ────────────────────────────────────────────────────────────
-total_accuracy = accuracy_score(df["true_label"], y_pred_final)
-per_class_accuracy = {
-    cls: accuracy_score(
-        (df["true_label"] == cls).astype(int),
-        (y_pred_final == cls).astype(int)
-    )
-    for cls in all_classes
-}
- 
+# ── 2D scatter: entropy vs P-wave score coloured by class ─────────────────────
+colors = ["#E24B4A", "#1D9E75", "#EF9F27", "#888780"]
+
+fig, ax = plt.subplots(figsize=(10, 7))
+for color, label in zip(colors, all_classes):
+    subset = df_ml[df_ml["true_label"] == label]
+    ax.scatter(subset["mean_entropy"], subset["mean_p_wave_amplitude"],
+               color=color, alpha=0.7, s=40, label=label, zorder=3)
+
+ax.set_title("Entropy vs P-wave score by class")
+ax.set_xlabel("Mean entropy (bits)")
+ax.set_ylabel("P-wave score [0, 1]")
+ax.legend(title="Class")
+ax.grid(True, alpha=0.3)
+plt.tight_layout()
+plt.show()
+
+# ── Print scaler + SVM weights for C++ deployment ────────────────────────────
+print(f"\n-- Scaler parameters for C++ --")
+print(f"float scaler_mean[] = {{", end="")
+print(", ".join([f"{m:.6f}f" for m in scaler.mean_]), end="")
+print("};")
+print(f"float scaler_std[]  = {{", end="")
+print(", ".join([f"{s:.6f}f" for s in scaler.scale_]), end="")
+print("};")
+
+print(f"\n-- SVM weight vector for C++ (linear kernel) --")
+print(f"// Classes: {list(svm.classes_)}")
+print(f"// One row per binary classifier (one-vs-one)")
+for i, coef in enumerate(svm.coef_):
+    print(f"float w_{i}[] = {{", end="")
+    print(", ".join([f"{c:.6f}f" for c in coef]), end="")
+    print("};")
+print(f"float intercept[] = {{", end="")
+print(", ".join([f"{b:.6f}f" for b in svm.intercept_]), end="")
+print("};")
+
+# ── Final summary ─────────────────────────────────────────────────────────────
 print(f"\n{'='*50}")
-print(f"  FINAL RESULTS SUMMARY")
+print(f"  SVM RESULTS SUMMARY")
 print(f"{'='*50}")
-print(f"  Total accuracy        : {total_accuracy:.4f}  ({total_accuracy*100:.2f}%)")
-print(f"  Combined macro F1     : {best_macro_f1:.4f}")
-print(f"\n  Per-class accuracy:")
-for cls, acc in per_class_accuracy.items():
-    print(f"    {cls:<10}: {acc:.4f}  ({acc*100:.2f}%)")
+print(f"  Kernel              : Linear")
+print(f"  Best C              : {best_C}")
+print(f"  Training macro F1   : {train_f1:.4f}")
+print(f"  CV macro F1         : {fold_scores.mean():.4f} +/- {fold_scores.std():.4f}")
+print(f"  Features used       : {features}")
 print(f"{'='*50}")

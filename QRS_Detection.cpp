@@ -24,9 +24,9 @@ using namespace std;
 // =========================================================
 
 // =========================================================
-// 1. Resample from 300 Hz to 200 Hz using polyphase filtering
+// 1. Resample from 300 Hz to 200 Hz 
 
-#define ORDER 48  // 2nd order → 3 taps
+#define ORDER 48  
 
 float x_state[ORDER] = {0};
 

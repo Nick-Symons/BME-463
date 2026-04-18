@@ -30,8 +30,14 @@ vector<int> extractQRSTimestamps(const vector<double>& pulseVec,
 vector<int> computeRRIntervals(const vector<int>& timestamps);
 
 vector<double> computeSlidingEntropy(const vector<int>& rrIntervals, 
-                    double fs = 200.0, int windowSize = 10);
+                    double fs = 200.0, int windowSize = 15);
 
 vector<double> computeKurtosis(const vector<double>& inputSignal);
 
 vector<double> computeHF_Residual(const vector<double>& inputSignal);
+
+vector<double> P_wave_BPF(const vector<double>& signal, 
+                    int windowSamples = 600);
+
+vector <double> P_wave_Amplitude(const vector<double>& signal, const vector<int>& qrs_timestamps, 
+                                                        int searchStart = -40, int searchEnd = -8);
