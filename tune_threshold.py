@@ -7,6 +7,34 @@ from sklearn.model_selection import StratifiedKFold, GridSearchCV, cross_val_sco
 from sklearn.metrics import (f1_score, confusion_matrix, ConfusionMatrixDisplay,
                              classification_report, accuracy_score)
 from sklearn.inspection import permutation_importance
+from sklearn.metrics import make_scorer
+
+# Physionet F1 score function
+def physionet_f1_score(y_true, y_pred):
+    """
+    Computes the official PhysioNet 2017 challenge F1 score.
+    F1 = (F1n + F1a + F1o + F1p) / 4
+    where each F1 = 2 * TP / (total_true + total_pred) for that class
+    """
+    classes = {"normal": "n", "af": "a", "other": "o", "noisy": "p"}
+    f1s     = {}
+
+    for cls, suffix in classes.items():
+        # True positives for this class
+        tp = sum(1 for t, p in zip(y_true, y_pred) if t == cls and p == cls)
+
+        # Total true instances of this class (row sum)
+        total_true = sum(1 for t in y_true if t == cls)
+
+        # Total predicted instances of this class (col sum)
+        total_pred = sum(1 for p in y_pred if p == cls)
+
+        denom = total_true + total_pred
+        f1s[cls] = (2 * tp / denom) if denom > 0 else 0.0
+
+    overall_f1 = sum(f1s.values()) / 4  # always divide by 4 even if class absent
+
+    return overall_f1, f1s
 
 # ── Load data ─────────────────────────────────────────────────────────────────
 try:
@@ -82,6 +110,14 @@ print(f"\n-- Feature scaling --")
 for i, f in enumerate(features):
     print(f"  {f:<20} mean={scaler.mean_[i]:.4f}  std={scaler.scale_[i]:.4f}")
 
+# ── Custom scorer for PhysioNet F1 score ──────────────────────────────────────
+def physionet_scorer(y_true, y_pred):
+    score, _ = physionet_f1_score(list(y_true), list(y_pred))
+    return score
+
+physionet_score = make_scorer(physionet_scorer)
+
+
 # ── Grid search over C with stratified CV ─────────────────────────────────────
 print(f"\n-- Grid search over C (linear kernel, 5-fold stratified CV) --")
 
@@ -92,10 +128,11 @@ grid_search = GridSearchCV(
     SVC(kernel="linear", class_weight="balanced"),
     param_grid,
     cv=cv,
-    scoring="f1_macro",
-    n_jobs=-1,   # use all CPU cores
-    verbose=1
+    scoring=physionet_score,   # use physionet scorer here
+    n_jobs=-1,
+    verbose=2
 )
+
 grid_search.fit(X_scaled, y)
 
 print(f"\nGrid search results:")
@@ -113,13 +150,13 @@ print(f"Best CV macro F1 : {grid_search.best_score_:.4f}")
 svm = SVC(kernel="linear", C=best_C, class_weight="balanced")
 svm.fit(X_scaled, y)
 
-y_pred_train = svm.predict(X_scaled)
-train_f1     = f1_score(y, y_pred_train, average="macro", zero_division=0)
+y_pred_train        = svm.predict(X_scaled)
+train_f1, train_cls = physionet_f1_score(list(y), list(y_pred_train))
 
 print(f"\n-- Overfitting check --")
-print(f"Training macro F1 : {train_f1:.4f}")
-print(f"CV macro F1       : {grid_search.best_score_:.4f}")
-print(f"Difference        : {train_f1 - grid_search.best_score_:.4f}  ",
+print(f"Training PhysioNet F1 : {train_f1:.4f}")
+print(f"CV PhysioNet F1       : {grid_search.best_score_:.4f}")
+print(f"Difference            : {train_f1 - grid_search.best_score_:.4f}  ",
       end="")
 if train_f1 - grid_search.best_score_ > 0.15:
     print("(WARNING: likely overfitting — consider lower C or more data)")
@@ -129,7 +166,7 @@ else:
 # ── Per-fold CV scores ────────────────────────────────────────────────────────
 fold_scores = cross_val_score(
     SVC(kernel="linear", C=best_C, class_weight="balanced"),
-    X_scaled, y, cv=cv, scoring="f1_macro"
+    X_scaled, y, cv=cv, scoring=physionet_score, n_jobs=-1
 )
 print(f"\n-- Per-fold CV scores --")
 for i, score in enumerate(fold_scores):
@@ -156,7 +193,7 @@ perm_imp = permutation_importance(
     svm, X_scaled, y,
     n_repeats=10,
     random_state=42,
-    scoring="f1_macro"
+    scoring=physionet_score
 )
 
 # Sort by mean importance
@@ -177,7 +214,7 @@ ax.barh(
     [features[i] for i in sorted_idx],
     perm_imp.importances_mean[sorted_idx],
     xerr=perm_imp.importances_std[sorted_idx],
-    color=["#E24B4A", "#1D9E75", "#EF9F27", "#888780"][:len(features)],
+    color=colors[:len(features)],
     alpha=0.7
 )
 ax.axvline(x=0, color="black", linewidth=0.8, linestyle="--")
@@ -188,8 +225,6 @@ plt.tight_layout()
 plt.show()
 
 # ── 2D scatter: entropy vs P-wave score coloured by class ─────────────────────
-colors = ["#E24B4A", "#1D9E75", "#EF9F27", "#888780"]
-
 fig, ax = plt.subplots(figsize=(10, 7))
 for color, label in zip(colors, all_classes):
     subset = df_ml[df_ml["true_label"] == label]
@@ -225,6 +260,9 @@ print(", ".join([f"{b:.6f}f" for b in svm.intercept_]), end="")
 print("};")
 
 # ── Final summary ─────────────────────────────────────────────────────────────
+y_pred_train    = svm.predict(X_scaled)
+overall, per_cls = physionet_f1_score(list(y), list(y_pred_train))
+
 print(f"\n{'='*50}")
 print(f"  SVM RESULTS SUMMARY")
 print(f"{'='*50}")
@@ -233,4 +271,9 @@ print(f"  Best C              : {best_C}")
 print(f"  Training macro F1   : {train_f1:.4f}")
 print(f"  CV macro F1         : {fold_scores.mean():.4f} +/- {fold_scores.std():.4f}")
 print(f"  Features used       : {features}")
+print(f"  F1n (Normal)        : {per_cls.get('normal', 0):.4f}")
+print(f"  F1a (AF)            : {per_cls.get('af',     0):.4f}")
+print(f"  F1o (Other)         : {per_cls.get('other',  0):.4f}")
+print(f"  F1p (Noisy)         : {per_cls.get('noisy',  0):.4f}")
+print(f"  Overall F1          : {overall:.4f}")
 print(f"{'='*50}")
