@@ -1,43 +1,67 @@
+# Pico Zero-Dynamic-Memory Replacement for Functions.h
+
+```cpp
+#ifndef FUNCTIONS_H
+#define FUNCTIONS_H
 
 #include <stdint.h>
-#include <vector>
-#include <fstream>
 
-using namespace std;
+#ifdef __cplusplus
+extern "C" {
+#endif
 
-void shift_right(float *in, int const n); 
+void shift_right(float *in, int n);
 
-float filter_IIR(float const a,
-                 float const *inx, float const *cx, int const nx,
-                 float const *iny, float const *cy, int const ny);
+float filter_IIR(float a,
+                 const float *inx, const float *cx, int nx,
+                 const float *iny, const float *cy, int ny);
 
-float filter_FIR(float const a, float const *in, float const *c,
-                 int const n);
+float filter_FIR(float a, const float *in, const float *c, int n);
 
-float* PanT_Thresh(float const n, float const *in, float peakt, 
-                    float peaki, float npki, float spki, 
-                    float thresholdi1);
+float* PanT_Thresh(float n, const float *in, float peakt,
+                   float peaki, float npki, float spki,
+                   float thresholdi1);
 
-vector<double> resampled_signal(const vector<double>& input_signal);
+/* output count returned by function */
+int resampled_signal_static(const float *input_signal, int input_len,
+                            float *out, int max_out);
 
-vector<double> bandpassed_signal(const vector<double>& input_signal);
+int bandpassed_signal_static(const float *input_signal, int input_len,
+                             float *out, int max_out);
 
-vector<double> QRS_Peaks(const vector<double>& input_signal);
+int QRS_Peaks_static(const float *input_signal, int input_len,
+                     int *out_peaks, int max_peaks);
 
-vector<int> extractQRSTimestamps(const vector<double>& pulseVec, 
-                    double threshold = 0.5);
+int extractQRSTimestamps_static(const int *pulse_idx, int pulse_count,
+                                int *timestamps, int max_ts,
+                                float threshold);
 
-vector<int> computeRRIntervals(const vector<int>& timestamps);
+int computeRRIntervals_static(const int *timestamps, int ts_count,
+                              int *rrIntervals, int max_rr);
 
-vector<double> computeSlidingEntropy(const vector<int>& rrIntervals, 
-                    double fs = 200.0, int windowSize = 15);
+int computeSlidingEntropy_static(const int *rrIntervals, int rr_count,
+                                 float fs, int windowSize,
+                                 float *out, int max_out);
 
-vector<double> computeKurtosis(const vector<double>& inputSignal);
+int computeKurtosis_static(const float *inputSignal, int len,
+                           float *out, int max_out);
 
-vector<double> computeHF_Residual(const vector<double>& inputSignal);
+int computeHF_Residual_static(const float *inputSignal, int len,
+                              float *out, int max_out);
 
-vector<double> P_wave_BPF(const vector<double>& signal, 
-                    int windowSamples = 600);
+int P_wave_BPF_static(const float *signal, int len,
+                      int windowSamples,
+                      float *out, int max_out);
 
-vector <double> P_wave_Amplitude(const vector<double>& signal, const vector<int>& qrs_timestamps, 
-                                                        int searchStart = -40, int searchEnd = -8);
+int P_wave_Amplitude_static(const float *signal, int len,
+                            const int *qrs_timestamps, int qrs_count,
+                            int searchStart, int searchEnd,
+                            float *out, int max_out);
+
+#ifdef __cplusplus
+}
+#endif
+
+#endif
+```
+
