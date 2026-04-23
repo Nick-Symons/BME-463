@@ -40,4 +40,8 @@ vector<double> P_wave_BPF(const vector<double>& signal,
                     int windowSamples = 600);
 
 vector <double> P_wave_Amplitude(const vector<double>& signal, const vector<int>& qrs_timestamps, 
-                                                        int searchStart = -40, int searchEnd = -8);
+                                                        int searchStart = -35, int searchEnd = -12);
+
+double computeTemplateDifference(const vector<double>& signal, const vector<int>& timestamps, vector<double>& templateOut, vector<double>& diffSignal, int halfWin = 60);
+
+double computeRMSSD(const vector<int>& rrIntervals, double fs = 200.0);

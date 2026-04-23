@@ -308,3 +308,16 @@ vector<double> computeSlidingEntropy(const vector<int>& rrIntervals, double fs,
     }
     return entropyValues;
 }
+
+// =========================================================
+// Compute RMSSD as an additional variance feature
+
+double computeRMSSD(const vector<int>& rrIntervals, double fs) {
+
+    double sumSqDiff = 0.0;
+    for (int i = 1; i < (int)rrIntervals.size(); i++) {
+        double diff  = (rrIntervals[i] - rrIntervals[i - 1]) / fs;
+        sumSqDiff   += diff * diff;
+    }
+    return sqrt(sumSqDiff / (rrIntervals.size() - 1));
+}

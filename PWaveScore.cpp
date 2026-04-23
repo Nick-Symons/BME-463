@@ -131,6 +131,7 @@ End of search window is set at 40 ms before QRS timestamp to avoid overlap with 
 
 vector <double> P_wave_Amplitude(const vector<double>& signal, const vector<int>& qrs_timestamps, 
                                                         int searchStart, int searchEnd) {
+    vector<double> peak_to_peak_amplitudes;
     vector<double> amplitudes;
 
     for (int ts : qrs_timestamps) {
@@ -138,7 +139,12 @@ vector <double> P_wave_Amplitude(const vector<double>& signal, const vector<int>
         int startIdx = max(0, ts + searchStart);
         int endIdx   = min((int)signal.size() - 1, ts + searchEnd);
         double max_amplitude = *max_element(signal.begin() + startIdx, signal.begin() + endIdx + 1);
-        amplitudes.push_back(max_amplitude);
+        double min_amplitude = *min_element(signal.begin() + startIdx, signal.begin() + endIdx + 1);
+        double peak_to_peak = max_amplitude - min_amplitude;
+        // Mean (baseline)
+        double mean = accumulate(signal.begin() + startIdx, signal.begin() + endIdx + 1, 0.0) / (endIdx - startIdx + 1);
+
+        amplitudes.push_back(max_amplitude - mean);
     }
     return amplitudes;
 }

@@ -40,8 +40,8 @@ void detect_afib(const vector<double>& signal,
     // According to your flowchart: If (Variance > Threshold) -> Noisy
     vector<double> kurtValues = computeKurtosis(signal);
     double meanKurtosis = accumulate(kurtValues.begin(), kurtValues.end(), 0.0) / kurtValues.size();   
-    vector<double> residualValues = computeHF_Residual(signal); 
-    double meanResidual = accumulate(residualValues.begin(), residualValues.end(), 0.0) / residualValues.size();   
+    // vector<double> residualValues = computeHF_Residual(signal); 
+    // double meanResidual = accumulate(residualValues.begin(), residualValues.end(), 0.0) / residualValues.size();   
 
     // --- STEP 2: VENTRICULAR RESPONSE (Pan-Tompkins) ---
     // Calculate R-R Intervals and Entropy
@@ -63,7 +63,7 @@ void detect_afib(const vector<double>& signal,
     double bpm = (timestamps.size() / recordingSec) * 60.0;
     // printf("Recording: %s, BPM: %.2f\n", filename.c_str(), bpm);
     if (bpm < 20 || bpm > 220) {
-        results_csv << filename << "," << true_label << ",NA,NA,NA,NA\n";
+        results_csv << filename << "," << true_label << ",NA,NA,NA,NA,NA\n";
         return;
     }
     
@@ -71,14 +71,20 @@ void detect_afib(const vector<double>& signal,
     vector<int> intervals = computeRRIntervals(timestamps);
     // printf("Recording: %s, R-R Intervals: %d\n", filename.c_str(), (int)intervals.size());
     if (intervals.size() < 8) {
-        results_csv << filename << "," << true_label << ",NA,NA,NA,NA\n";
+        results_csv << filename << "," << true_label << ",NA,NA,NA,NA,NA\n";
         return;
     }
     
+    vector<double> templateOut;
+    vector<double> ssdPerBeat;
+    vector<double> diffSignal;
+
     vector<double> entropy = computeSlidingEntropy(intervals);
+    double RMSSD = computeRMSSD(intervals);
+    double templateDiff = computeTemplateDifference(resampled, timestamps, templateOut, diffSignal);
 
     if (entropy.empty()) {
-        results_csv << filename << "," << true_label << ",NA,NA,NA,NA\n";
+        results_csv << filename << "," << true_label << ",NA,NA,NA,NA,NA\n";
         return;
     }
 
@@ -97,7 +103,7 @@ void detect_afib(const vector<double>& signal,
         qrs_in_Pwave.push_back(timestamp);
     }
 
-    int searchStart = -35; int searchEnd = -11; 
+    int searchStart = -35; int searchEnd = -12; 
     vector<int> searchRegion;
     searchRegion.reserve(2*timestamps.size());
     for (int ts : qrs_in_Pwave) {
@@ -122,6 +128,7 @@ void detect_afib(const vector<double>& signal,
     // Convert qrs_in_Pwave to double for CSV dumping
     vector<double> qrs_timestamps(qrs_in_Pwave.begin(), qrs_in_Pwave.end());
     vector<double> search_region_double(searchRegion.begin(), searchRegion.end());
+
     // Dump every stage to CSV for plotting
     dumpCSV("_1_raw.csv",           signal);
     dumpCSV("_2_qrs_peaks.csv",     qrs_peaks);
@@ -129,13 +136,16 @@ void detect_afib(const vector<double>& signal,
     dumpCSV("_4_QRStimestamps.csv", qrs_timestamps);
     dumpCSV("_5_PWaveAmps.csv",     p_wave_amplitudes);
     dumpCSV("_6_SearchRegions.csv", search_region_double);
-    
+    dumpCSV("_7_template.csv",     templateOut);
+    dumpCSV("_8_diff_signal.csv",  diffSignal);
+
     // Log summary statistics to results.csv for tuning of thresholds and classification logic
     results_csv << filename     << ","
                 << true_label   << ","
                 << meanKurtosis << ","
-                << meanResidual << ","
                 << meanEnt      << ","
+                << RMSSD        << ","
+                << templateDiff << ","
                 << meanPWaveAmp << "\n";
 
     // --- STEP 5: CLASSIFICATION LOGIC ---
@@ -172,7 +182,7 @@ void run_batch_training(string root_path) {
     }
 
     ofstream results("results.csv");
-    results << "filename,true_label,mean_kurtosis,mean_residual,mean_entropy,mean_p_wave_amplitude\n";
+    results << "filename,true_label,mean_kurtosis,mean_entropy,mean_RMSSD,mean_template_diff,mean_p_wave_amplitude\n";
 
     for (const auto& folder : fs::directory_iterator(root_path)) {
         if (folder.is_directory()) {
@@ -181,11 +191,13 @@ void run_batch_training(string root_path) {
             // It captures "AF", "Normal", or "Noisy" from the folder name
             string signal_label = folder.path().filename().string();
 
+            /*
             if (signal_label == "noisy") {
                 cout << "\n[" << signal_label << "] Skipping this folder." << endl;
                 continue;
             }
-            
+            */
+
             cout << "\nChecking Category: [" << signal_label << "]" << endl;
 
             for (const auto& file : fs::directory_iterator(folder.path())) {
@@ -200,12 +212,11 @@ void run_batch_training(string root_path) {
                 if (signal_data.empty()) continue;
 
                 // 2. RUN THE ALGORITHM
-                // We send the raw data into the 'Brain'
                 detect_afib(signal_data,
                             signal_label,
                             file.path().stem().string(),
                             results);
-                
+
                 cout << "Results written to results.csv" << endl;
 
                 /*
