@@ -49,6 +49,7 @@ void detect_afib(const vector<double>& signal,
     vector<double> bandpassed = bandpassed_signal(resampled);
     vector<double> qrs_peaks = QRS_Peaks(bandpassed);
     vector<int> timestamps = extractQRSTimestamps(qrs_peaks);
+    
 
     if (timestamps.size() < 2) {
         results_csv << filename << "," << true_label << ",NA,NA,NA,NA,NA\n";

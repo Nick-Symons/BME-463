@@ -54,7 +54,7 @@ vector<double> computeKurtosis(const vector<double>& inputSignal) {
 // Two potential approaches: 
 // 1) Apply simple LPF and calculate the magnitude of the residual (difference between original and filtered signals)
 // 2) Continuously add up the difference between adjacent samples to calculate a value representing how fast the signal changes
-/*
+
 // Going to use option 2 for the moment as easier to compute and don't have to worry about filter group delay and alignment of
 // residual with original signal version, but can switch to option 1 if this doesn't work well for classification
 vector<double> computeHF_Residual(const vector<double>& inputSignal) {
@@ -81,7 +81,7 @@ vector<double> computeHF_Residual(const vector<double>& inputSignal) {
     }
     return residualValues;
 }
-*/ 
+ 
 
 // Option 1 - Apply simple LPF and calculate the magnitude of the residual (difference between original and filtered signals)
 
